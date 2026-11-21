@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><title>Lernhub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--tx:#1d1d1b;--mu:#6b6a64;--ac:#3b5bdb;--acx:#fff;--bd:#e2e0d8}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#17181a;--card:#222428;--tx:#ececea;--mu:#9a9992;--ac:#7c93f5;--acx:#10131f;--bd:#34363b}}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:26px;margin:4px 0 2px}h2{font-size:18px;margin:28px 0 8px}
+.mu{color:var(--mu);font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;cursor:pointer;text-align:left;color:var(--tx);font:inherit}
+.card:hover{border-color:var(--ac)}.card b{display:block}
+.box{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-top:10px}
+button,input,select,textarea{font:inherit;color:var(--tx)}
+.btn{background:var(--ac);color:var(--acx);border:0;border-radius:9px;padding:8px 13px;cursor:pointer;text-decoration:none;display:inline-block;font-size:15px}
+.btn.s{background:transparent;color:var(--ac);border:1px solid var(--bd)}
+.btn:disabled{opacity:.45;cursor:default}
+input[type=text],input[type=password],input[type=email],select,textarea{background:var(--card);border:1px solid var(--bd);border-radius:9px;padding:9px 11px;width:100%}
+textarea{min-height:100px;resize:vertical;margin:8px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row>input[type=text]{flex:1;min-width:140px}.row>select{width:auto}
+.crumb{background:none;border:0;color:var(--ac);cursor:pointer;padding:0;margin-bottom:8px;font-size:16px}
+.drop{border:2px dashed var(--bd);border-radius:12px;padding:18px;text-align:center;color:var(--mu)}
+.drop.on{border-color:var(--ac)}
+.file{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px 12px;margin-top:10px}
+.fh{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;word-break:break-all}
+.pv{margin-top:8px}.pv img{max-width:100%;max-height:420px;border-radius:8px}
+.pv pre{margin:0;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:13px;background:var(--bg);padding:8px;border-radius:8px}
+.pv iframe{width:100%;height:480px;border:1px solid var(--bd);border-radius:8px;background:#fff}
+.m{padding:10px 12px;border-radius:10px;margin:8px 0;white-space:pre-wrap;background:var(--bg)}
+.tag{display:inline-block;background:var(--ac);color:var(--acx);border-radius:6px;padding:0 7px;font-size:13px;margin-right:6px}
+.tr{display:flex;gap:8px;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px}
+#st{position:fixed;right:10px;bottom:6px;font-size:12px;color:var(--mu)}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+</head><body><main id="app"></main><div id="st"></div>
+<script>
+/* === Supabase-Zugang (anon Key ist öffentlich gedacht) === */
+const SUPABASE_URL="https://wwqheaufujgplxxirvtn.supabase.co";
+const SUPABASE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3cWhlYXVmdWpncGx4eGlydnRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUwMTc5MTcsImV4cCI6MjExMDU5MzkxN30.UDIPlrvbEpfTfUZ01zlBiY08-wKno3Nq5Vxi8qw-mTg";
+/* ========================================================= */
+const BUCKET="unterlagen",GK="lernhub_gemini_key",GM="lernhub_gemini_model";
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const PRE=["Mathe","Deutsch","Englisch","Physik","Chemie","Biologie","Geschichte","Politik"];
+const uid=()=>Math.random().toString(36).slice(2,10),$=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let S={subjects:[]},view={t:"home"},busy=false,armed=null,cur={},user=null,tm;
+const setSt=t=>{$("#st").textContent=t};
+function save(){clearTimeout(tm);setSt("Speichert …");tm=setTimeout(async()=>{const{error}=await sb.from("lernhub_state").upsert({user_id:user.id,data:S,updated_at:new Date().toISOString()});setSt(error?"Speichern fehlgeschlagen: "+error.message:"Gespeichert")},500)}
+const subj=()=>S.subjects.find(s=>s.id===view.s),topic=()=>subj()?.topics.find(t=>t.id===view.p);
+const go=v=>{view=v;render()};
+const nvTxt=n=>n==="eA"?"erhöhtes Anforderungsniveau (eA)":n==="gA"?"grundlegendes Anforderungsniveau (gA)":"nicht festgelegt";
+function two(b,key,fn){if(armed===key){armed=null;fn();return}armed=key;const o=b.textContent;b.textContent="Wirklich? Nochmal klicken";setTimeout(()=>{if(armed===key){armed=null;if(b.isConnected)b.textContent=o}},4000)}
+const rmFiles=ts=>{const p=ts.flatMap(t=>(t.files||[]).map(f=>f.path));return p.length?sb.storage.from(BUCKET).remove(p):0};
+async function ai(prompt,json){const k=localStorage.getItem(GK);if(!k)throw new Error("Bitte erst auf der Startseite den Gemini-API-Key eintragen.");const m=localStorage.getItem(GM)||"gemini-2.5-flash";
+ const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":k},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:json?{responseMimeType:"application/json"}:{}})});
+ const d=await r.json();if(!r.ok)throw new Error(d.error?.message||r.status);return(d.candidates?.[0]?.content?.parts||[]).map(p=>p.text||"").join("")}
+function authV(){$("#app").innerHTML=`<h1>🎓 Lernhub</h1><div class="box" style="max-width:380px"><b>Anmelden</b><p class="mu">Deine Daten sind nur für dich sichtbar.</p>
+ <button class="btn" data-a="g">Mit Google anmelden</button><div class="mu" id="ae" style="margin-top:8px"></div></div>`}
+async function google(){const{error}=await sb.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});if(error)$("#ae").textContent=error.message}
+async function boot(){const{data:{session}}=await sb.auth.getSession();if(!session)return authV();user=session.user;
+ const{data,error}=await sb.from("lernhub_state").select("data").eq("user_id",user.id).maybeSingle();
+ if(error){$("#app").innerHTML=`<p>Datenbank-Fehler: ${esc(error.message)}<br><span class="mu">Wurde setup.sql im Supabase SQL Editor ausgeführt?</span></p>`;return}
+ if(data?.data?.subjects)S=data.data;else{S={subjects:PRE.map(n=>({id:uid(),name:n,abi:true,niveau:"",topics:[]}))};save()}
+ render()}
+function render(){const a=$("#app");view.t==="home"?home(a):view.t==="subj"?subjV(a):topicV(a)}
+function home(a){const g=abi=>S.subjects.filter(s=>!!s.abi===abi).map(s=>`<button class="card" data-a="subj" data-id="${s.id}"><b>${esc(s.name)}</b><span class="mu">${s.niveau?s.niveau+" · ":""}${s.topics.length} Themen</span></button>`).join("")||'<span class="mu">Noch keine.</span>';
+ a.innerHTML=`<h1>🎓 Lernhub</h1><div class="mu">Hamburg · Abitur 2027 · ${esc(user.email)} <a href="#" data-a="out" style="color:var(--ac)">Abmelden</a></div>
+ <h2>Abi-Fächer</h2><div class="grid">${g(true)}</div><h2>Weitere Fächer</h2><div class="grid">${g(false)}</div>
+ <h2>Neues Fach</h2><div class="row"><input type="text" id="nn" placeholder="Fachname"><select id="na"><option value="1">Abi-Fach</option><option value="">Weiteres Fach</option></select><select id="nv"><option value="">Niveau wählen</option><option value="gA">gA (grundlegend)</option><option value="eA">eA (erhöht)</option></select><button class="btn" data-a="addS">Hinzufügen</button></div><div class="mu" id="ne"></div>
+ <h2>Gemini</h2><div class="box"><div class="mu">API-Key von aistudio.google.com. Er bleibt nur in diesem Browser gespeichert, nicht in der Datenbank.</div>
+ <div class="row" style="margin-top:8px"><input type="password" id="gk" placeholder="Gemini API-Key" value="${esc(localStorage.getItem(GK)||"")}"><input type="text" id="gm" placeholder="Modell" value="${esc(localStorage.getItem(GM)||"gemini-2.5-flash")}"></div></div>`}
+function subjV(a){const s=subj();
+ a.innerHTML=`<button class="crumb" data-a="home">← Alle Fächer</button><h1>${esc(s.name)}</h1>
+ ${s.abi?`<div class="row"><span class="mu">Niveau:</span><select id="nvs"><option value="">–</option><option value="gA"${s.niveau==="gA"?" selected":""}>gA</option><option value="eA"${s.niveau==="eA"?" selected":""}>eA</option></select></div>`:""}
+ <h2>Themen</h2><div class="grid">${s.topics.map(t=>`<button class="card" data-a="topic" data-id="${t.id}"><b>${esc(t.name)}</b><span class="mu">${(t.tasks||[]).length} Aufgaben</span></button>`).join("")||'<span class="mu">Noch keine Themen.</span>'}</div>
+ <h2>Neues Thema</h2><div class="row"><input type="text" id="nt" placeholder="z. B. Analysis, Gedichtinterpretation …"><button class="btn" data-a="addT">Hinzufügen</button></div>
+ <h2>Fach</h2><button class="btn s" data-a="delS">Fach löschen</button>`}
+function gprompt(){return `Ich lade dir gleich Unterrichtsmaterialien (Arbeitsblätter) zum Thema "${topic().name}" im Fach ${subj().name} hoch.\nKontext: Hamburg, Oberstufe${subj().abi?`, Abitur 2027, Niveau: ${nvTxt(subj().niveau)}`:""}. Orientiere dich an den Vorgaben und Operatoren des Hamburger Bildungsplans${subj().abi?" für das Abitur":""}.\nAufgabe: Wähle bzw. filtere aus dem Material passende Aufgaben aus und ordne sie den Anforderungsbereichen zu: AFB 1 (Wiedergeben), AFB 2 (Anwenden, Zusammenhänge herstellen), AFB 3 (Reflektieren, Beurteilen, Problemlösen). Gib mindestens 3 Aufgaben pro AFB aus. Reicht das Material nicht, formuliere ähnliche Aufgaben im Stil des Materials.\nGib NUR ein JSON-Array aus, ohne Text davor oder danach, in diesem Format:\n[{"afb":1,"aufgabe":"...","tipp":"kurzer Hinweis","loesung":"Musterlösung"}]`}
+function topicV(a){const s=subj(),t=topic();t.tasks=t.tasks||[];t.files=t.files||[];
+ a.innerHTML=`<button class="crumb" data-a="subj" data-id="${s.id}">← ${esc(s.name)}</button><h1>${esc(t.name)}</h1>
+ <h2>1. Lernmaterial (Arbeitsblätter aus dem Unterricht)</h2>
+ <div class="drop" id="dz">Dateien hierher ziehen oder <label style="color:var(--ac);cursor:pointer;text-decoration:underline">auswählen<input type="file" id="fi" multiple hidden></label></div>
+ <div id="fl"></div><div class="mu" id="fm"></div>
+ <h2>2. Aufgaben mit Gemini erstellen</h2>
+ <div class="box"><p style="margin-top:0">Schick die Unterrichtsmaterialien an Gemini und lass dir für das Thema Aufgaben der Anforderungsbereiche AFB 1 bis 3 auswählen bzw. filtern.</p>
+ <ol class="mu"><li>Gemini öffnen und die Dateien von oben anhängen.</li><li>Den Prompt kopieren und einfügen.</li><li>Die Antwort von Gemini unten in die Aufgaben-Datenbank einfügen.</li></ol>
+ <textarea id="gp" readonly>${esc(gprompt())}</textarea>
+ <div class="row"><button class="btn" data-a="copy">Prompt kopieren</button><a class="btn s" href="https://gemini.google.com/app" target="_blank" rel="noopener">Gemini öffnen ↗</a><span class="mu" id="cm"></span></div></div>
+ <h2>3. Üben</h2>
+ <div class="box"><b>Aufgaben-Datenbank</b><div class="mu">Antwort von Gemini hier einfügen:</div>
+ <textarea id="gi" placeholder='[{"afb":1,"aufgabe":"…"}]'></textarea>
+ <div class="row"><button class="btn" data-a="imp">In Datenbank übernehmen</button><span class="mu" id="tm"></span></div>
+ <details style="margin-top:10px"><summary class="mu" id="sm"></summary><div id="tl"></div><button class="btn s" data-a="clr" style="margin-top:8px">Datenbank leeren</button></details></div>
+ <div class="box"><b>Aufgabe stellen</b><div class="row" id="ab" style="margin:8px 0"></div><div id="pr"></div></div>
+ <h2>Thema</h2><button class="btn s" data-a="delT">Thema löschen</button>`;
+ drawFiles();drawTasks();drawPractice()}
+const isPdf=f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name),isImg=f=>/^image\//.test(f.type),isTxt=f=>/^text\//.test(f.type)||/\.(txt|md|csv)$/i.test(f.name);
+async function drawFiles(){const el=$("#fl");if(!el)return;const l=topic().files;
+ el.innerHTML=l.map((f,i)=>`<div class="file"><div class="fh"><b>${esc(f.name)}</b><span class="row"><button class="btn s" data-a="up" data-id="${f.id}" ${i?"":"disabled"}>↑</button><button class="btn s" data-a="dn" data-id="${f.id}" ${i<l.length-1?"":"disabled"}>↓</button><a class="btn s" data-u="${f.id}" target="_blank" rel="noopener">Öffnen</a><button class="btn s" data-a="delf" data-id="${f.id}">Löschen</button></span></div><div class="pv" data-f="${f.id}"><span class="mu">Wird geladen …</span></div></div>`).join("")||'<p class="mu">Noch keine Dateien.</p>';
+ for(const f of l){const p=el.querySelector(`[data-f="${f.id}"]`),a=el.querySelector(`[data-u="${f.id}"]`);if(!p)continue;
+  const{data}=await sb.storage.from(BUCKET).createSignedUrl(f.path,3600);if(!data){p.textContent="Datei nicht ladbar.";continue}const u=data.signedUrl;a.href=u;
+  try{if(isImg(f))p.innerHTML=`<img src="${u}" alt="">`;
+   else if(isPdf(f))p.innerHTML=`<iframe src="${URL.createObjectURL(await(await fetch(u)).blob())}"></iframe>`;
+   else if(isTxt(f)){p.innerHTML="<pre></pre>";p.firstChild.textContent=(await(await fetch(u)).text()).slice(0,4000)}
+   else p.innerHTML='<span class="mu">Keine Vorschau, bitte „Öffnen“ nutzen.</span>'}catch(e){p.innerHTML='<span class="mu">Vorschau nicht möglich, bitte „Öffnen“ nutzen.</span>'}}}
+async function addFiles(fs){const t=topic(),m=$("#fm");for(const f of fs){const id=uid(),path=`${user.id}/${id}-${f.name.replace(/[^\w.\-]+/g,"_")}`;m.textContent="Lädt hoch: "+f.name;
+  const{error}=await sb.storage.from(BUCKET).upload(path,f,{contentType:f.type||undefined});if(error){m.textContent="Upload fehlgeschlagen: "+error.message;continue}t.files.push({id,name:f.name,path,type:f.type})}
+ if(m.isConnected&&!m.textContent.startsWith("Upload fehl"))m.textContent="";save();drawFiles()}
+function mv(id,d){const l=topic().files,i=l.findIndex(f=>f.id===id),j=i+d;if(i<0||j<0||j>=l.length)return;[l[i],l[j]]=[l[j],l[i]];save();drawFiles()}
+function drawTasks(){const t=topic();if(!$("#tl"))return;const n=a=>t.tasks.filter(x=>x.afb===a).length;
+ $("#sm").textContent=`${t.tasks.length} Aufgaben gespeichert (AFB 1: ${n(1)}, AFB 2: ${n(2)}, AFB 3: ${n(3)})`;
+ $("#tl").innerHTML=t.tasks.map(x=>`<div class="tr"><span><span class="tag">AFB ${x.afb}</span>${esc(x.aufgabe.slice(0,140))}</span><button class="btn s" data-a="dt" data-id="${x.id}">×</button></div>`).join("");
+ $("#ab").innerHTML=[1,2,3].map(a=>`<button class="btn" data-a="pick" data-id="${a}" ${n(a)?"":"disabled"}>AFB ${a}</button>`).join("")+(t.tasks.length?"":'<span class="mu">Erst Aufgaben in die Datenbank übernehmen.</span>')}
+function norm(arr){const R={I:1,II:2,III:3};return(Array.isArray(arr)?arr:[]).map(x=>{const m=String(x.afb||"").toUpperCase().replace(/AFB|\s/g,"");return{id:uid(),afb:R[m]||[1,2,3].find(n=>String(n)===m.replace(/\D/g,""))||2,aufgabe:String(x.aufgabe||"").trim(),tipp:String(x.tipp||"").trim(),loesung:String(x.loesung||"").trim()}}).filter(x=>x.aufgabe)}
+async function imp(){const v=$("#gi").value.trim(),tm=$("#tm");if(!v)return;tm.textContent="Wird gelesen …";let arr=[];
+ try{const s=v.replace(/```(json)?/g,"");arr=norm(JSON.parse(s.slice(s.indexOf("["),s.lastIndexOf("]")+1)))}catch(e){}
+ if(!arr.length&&localStorage.getItem(GK)){try{arr=norm(JSON.parse(await ai(`Extrahiere alle Aufgaben aus dem Text als JSON-Array [{"afb":1,"aufgabe":"","tipp":"","loesung":""}]. afb ist 1, 2 oder 3 (schätze, falls nicht angegeben). Nur JSON.\n\nText:\n${v.slice(0,20000)}`,true)))}catch(e){}}
+ if(!arr.length){tm.textContent="Keine Aufgaben erkannt. Bitte Gemini-Antwort prüfen.";return}
+ topic().tasks.push(...arr);save();$("#gi").value="";tm.textContent=`${arr.length} Aufgaben übernommen.`;drawTasks();drawPractice()}
+function drawPractice(){const el=$("#pr"),c=cur[view.p];if(!el)return;
+ el.innerHTML=c?`<span class="tag">AFB ${c.t.afb}</span><div class="m">${esc(c.t.aufgabe)}</div>${c.t.tipp?(c.tip?`<div class="mu">Tipp: ${esc(c.t.tipp)}</div>`:'<button class="btn s" data-a="tip">Tipp anzeigen</button>'):""}<textarea id="ans" placeholder="Deine Lösung …">${esc(c.ans||"")}</textarea><button class="btn" data-a="check" ${busy?"disabled":""}>Abgeben und prüfen</button>${c.fb?`<div class="m">${esc(c.fb)}</div>`:""}`:'<span class="mu">AFB wählen, dann erscheint eine Aufgabe.</span>'}
+async function check(){const c=cur[view.p];if(!c||busy)return;const a=$("#ans").value.trim();if(!a)return;c.ans=a;busy=true;c.fb="Wird geprüft …";drawPractice();
+ try{c.fb=await ai(`Du bist Abitur-Tutor (Hamburg, Fach ${subj().name}${subj().niveau?", "+subj().niveau:""}, Thema ${topic().name}). Prüfe die Schülerlösung.\nAufgabe (AFB ${c.t.afb}): ${c.t.aufgabe}\n${c.t.loesung?"Musterlösung: "+c.t.loesung+"\n":""}Schülerlösung: ${a}\n\nAntworte auf Deutsch. Erste Zeile: "Ergebnis: richtig", "Ergebnis: teilweise richtig" oder "Ergebnis: falsch". Dann kurz: was stimmt, was fehlt oder falsch ist, wie man es besser macht. Bei AFB 3 zählt die Begründung. Fair und knapp.`)}
+ catch(e){c.fb="Fehler: "+e.message}
+ busy=false;if(cur[view.p]===c)drawPractice()}
+async function copy(){const ta=$("#gp");try{await navigator.clipboard.writeText(ta.value)}catch(e){ta.select();document.execCommand("copy")}$("#cm").textContent="Kopiert."}
+document.addEventListener("click",async e=>{const b=e.target.closest("[data-a]");if(!b)return;e.preventDefault();const a=b.dataset.a,id=b.dataset.id;
+ if(a==="g")return google();
+ if(a==="out"){await sb.auth.signOut();user=null;return authV()}
+ if(a==="home")go({t:"home"});else if(a==="subj")go({t:"subj",s:id||view.s});else if(a==="topic")go({t:"topic",s:view.s,p:id});
+ else if(a==="addS"){const n=$("#nn").value.trim();if(!n)return;const ab=!!$("#na").value,nv=$("#nv").value;if(ab&&!nv){$("#ne").textContent="Bitte Niveau (gA oder eA) wählen.";return}S.subjects.push({id:uid(),name:n,abi:ab,niveau:ab?nv:"",topics:[]});save();render()}
+ else if(a==="addT"){const n=$("#nt").value.trim();if(!n)return;subj().topics.push({id:uid(),name:n,tasks:[],files:[]});save();render()}
+ else if(a==="delS")two(b,"s",async()=>{await rmFiles(subj().topics);S.subjects=S.subjects.filter(s=>s.id!==view.s);save();go({t:"home"})});
+ else if(a==="delT")two(b,"t",async()=>{const s=subj(),t=topic();await rmFiles([t]);s.topics=s.topics.filter(x=>x!==t);save();go({t:"subj",s:s.id})});
+ else if(a==="clr")two(b,"c",()=>{topic().tasks=[];save();cur[view.p]=null;drawTasks();drawPractice()});
+ else if(a==="delf"){const t=topic(),f=t.files.find(x=>x.id===id);await sb.storage.from(BUCKET).remove([f.path]);t.files=t.files.filter(x=>x!==f);save();drawFiles()}
+ else if(a==="up")mv(id,-1);else if(a==="dn")mv(id,1);
+ else if(a==="copy")copy();else if(a==="imp")imp();
+ else if(a==="dt"){const t=topic();t.tasks=t.tasks.filter(x=>x.id!==id);save();drawTasks()}
+ else if(a==="pick"){const l=topic().tasks.filter(x=>x.afb==id),o=cur[view.p]?.t;let c=l.filter(x=>x!==o);if(!c.length)c=l;cur[view.p]={t:c[Math.floor(Math.random()*c.length)],tip:false,ans:"",fb:""};drawPractice()}
+ else if(a==="tip"){cur[view.p].tip=true;cur[view.p].ans=$("#ans")?.value||"";drawPractice()}
+ else if(a==="check")check()});
+document.addEventListener("change",e=>{const i=e.target.id;if(i==="fi"){addFiles([...e.target.files]);e.target.value=""}else if(i==="nvs"){subj().niveau=e.target.value;save()}else if(i==="gk")localStorage.setItem(GK,e.target.value.trim());else if(i==="gm")localStorage.setItem(GM,e.target.value.trim())});
+document.addEventListener("input",e=>{if(e.target.id==="ans"&&cur[view.p])cur[view.p].ans=e.target.value});
+["dragover","dragleave","drop"].forEach(n=>document.addEventListener(n,e=>{const z=e.target.closest?.("#dz");if(!z)return;e.preventDefault();z.classList.toggle("on",n==="dragover");if(n==="drop")addFiles([...e.dataTransfer.files])}));
+boot();
+</script></body></html>
